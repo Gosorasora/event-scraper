@@ -6,7 +6,7 @@
 
 ![아키텍처](docs/event-scraper-aws.png)
 
-- **영상과 유튜브**는 Gemini 2.5 Flash가 영상을 직접 봅니다.
+- **영상과 유튜브**는 Gemini Flash가 영상을 직접 봅니다. 모델을 순서대로 씁니다(`gemini-3.8-flash` → `2.5-flash` → `3.5-flash-lite`). 무료 일일 한도가 모델별이라 하나가 다 떨어지면 다음 모델이 이어받습니다.
 - **아티클과 텍스트**는 Claude Haiku 5.5가 `web_fetch`로 읽고 `web_search`로 공식 링크를 찾습니다. 링크는 실제로 읽거나 검색한 결과에 나온 URL만 남깁니다.
 - **Gemini가 막히거나 할당량이 끝나면** 유튜브도 Claude가 제목과 설명을 바탕으로 대신 요약하고, 그렇게 만든 요약이라고 표시합니다.
 - **Notion 웹 클리퍼로 넣은 행**(`one_liner`가 빈 행)은 하루 한 번 배치로 채웁니다.
@@ -67,6 +67,7 @@ AWS_PROFILE=<내 프로필> AWS_REGION=ap-northeast-2 ./scripts/setup.sh
 |---|---|
 | 유튜브·쇼츠 링크 | Gemini가 영상을 보고, Claude가 공식 링크를 찾음 |
 | 아티클 링크 | Claude가 읽고 공식 링크를 찾음 |
+| 자바스크립트로 그려지는 페이지 링크(남의 공개 Notion 페이지, SPA) | Claude에게는 빈 껍데기만 오므로 [Jina Reader](https://jina.ai/reader/)로 렌더한 텍스트를 Claude가 읽음 |
 | 링크 + 다음 줄에 메모 | 메모는 `memo` 속성에 저장 |
 | 20MB 이하 영상 파일(다운로드한 릴스 등) | Gemini가 파일을 직접 봄 |
 | 인스타그램 링크만 | 요약 없이 저장만 함(링크로는 내용을 읽을 수 없음). 영상 파일을 보내거나 캡션을 메모로 붙여 넣으면 분석 |
@@ -83,13 +84,13 @@ AWS_PROFILE=<내 프로필> AWS_REGION=ap-northeast-2 ./scripts/setup.sh
 
 - **분류와 콘텐츠 유형:** `src/common.py`의 `CATEGORIES`, `TYPES`
 - **요약 언어와 프롬프트:** `src/summarize.py`의 `PROMPT`. 기본값은 한국어 요약입니다.
-- **모델:** `template.yaml`의 `GeminiModel`, `ClaudeModel` 파라미터
+- **모델:** `template.yaml`의 `GeminiModel`(쉼표로 구분, 순서대로 시도), `ClaudeModel` 파라미터
 
 ## 보안
 
 - **Function URL은 공개돼 있습니다.** 대신 텔레그램 webhook 시크릿 헤더가 있고 내 chat id에서 온 요청만 처리하며, 나머지는 무시합니다.
 - **키는 SSM Parameter Store에 SecureString으로 둡니다.** 코드나 Lambda 환경변수에는 넣지 않습니다. 함수의 IAM 역할은 `/event-scraper/*`만 읽을 수 있고, 콜드 스타트 때 한 번 불러옵니다.
-- **보낸 콘텐츠는 외부 서비스로 갑니다.** Telegram, Google(Gemini), Anthropic(Claude), Notion이 그 내용을 받습니다.
+- **보낸 콘텐츠는 외부 서비스로 갑니다.** Telegram, Google(Gemini), Anthropic(Claude), Notion이 그 내용을 받습니다. Claude가 읽지 못한 페이지는 Jina Reader에도 보내 렌더합니다.
 
 ## 삭제
 

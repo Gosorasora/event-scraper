@@ -5,7 +5,8 @@ Description: Content summary bot - Telegram/Notion clipper -> Gemini -> Notion
 Parameters:
   GeminiModel:
     Type: String
-    Default: gemini-2.5-flash
+    Default: gemini-3.8-flash,gemini-2.5-flash,gemini-3.5-flash-lite
+    Description: Comma-separated, tried in order. The free-tier daily quota is per model, so a used-up model hands over to the next.
   ClaudeModel:
     Type: String
     Default: claude-haiku-5-5
@@ -18,7 +19,7 @@ Resources:
       CodeUri: src/
       Handler: app.handler
       Runtime: python3.12
-      Timeout: 300
+      Timeout: 900  # a URL can cost Claude + Jina + Claude, a video up to three Gemini models; the batch runs rows in series
       MemorySize: 256
       Environment:
         Variables:

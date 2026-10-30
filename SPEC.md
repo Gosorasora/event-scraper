@@ -33,7 +33,7 @@ Notion 클리퍼 ─빈 행─┘        ↑
 | 런타임 | Python 3.12, Lambda 단일 함수 `event-scraper` (스택·SSM 접두사 동일) |
 | 진입점 1 | 텔레그램 봇 웹훅 → Lambda Function URL (auth NONE) |
 | 진입점 2 | EventBridge 규칙, 하루 1회 |
-| 모델 | 영상: Gemini API / 텍스트·아티클·링크 검색: Claude API (`claude-haiku-5-5`, `web_fetch`·`web_search`). 둘 다 키 직접 호출 |
+| 모델 | 영상: Gemini API (`GeminiModel` 쉼표 목록, 앞 모델이 한도에 걸리면 다음 모델) / 텍스트·아티클·링크 검색: Claude API (`claude-haiku-5-5`, `web_fetch`·`web_search`). 둘 다 키 직접 호출 |
 | 시크릿 | SSM Parameter Store SecureString |
 | 배포 | AWS SAM |
 | 관측 | CloudWatch Logs |
@@ -124,6 +124,7 @@ def process_row(page):
         result = claude(text=memo, tools=[web_search])
     elif url:                           # 텔레그램 경로: URL만 옴
         result = claude(url=url, tools=[web_fetch, web_search])   # Claude가 직접 읽음
+        # 못 읽으면(JS 껍데기): claude(text=jina(url)) 한 번 더, 그래도 못 읽으면 mark_saved_only
     else:
         mark_failed(page); return
 
@@ -131,7 +132,7 @@ def process_row(page):
     update_properties(page, result)
 ```
 
-유튜브(주소는 `watch?v=ID`로 정규화 — `m.youtube.com`은 Gemini가 거부)와 영상 파일은 Gemini, 클리퍼 본문·캡션·URL은 Claude가 읽는다. Lambda는 HTML을 직접 받지 않는다. 본문 고정 순서: `## 요약 / ## 핵심 / ## 해볼 것 / ## 링크 / ## 원문`. 링크는 검색·fetch 결과에 실제로 나온 URL만.
+유튜브(주소는 `watch?v=ID`로 정규화 — `m.youtube.com`은 Gemini가 거부)와 영상 파일은 Gemini, 클리퍼 본문·캡션·URL은 Claude가 읽는다. Lambda는 HTML을 직접 받지 않는다. JS 렌더 페이지(남의 Notion 공개 페이지 등)는 Jina Reader(`r.jina.ai`)가 렌더한 텍스트로 한 번 더 읽는다. 본문 고정 순서: `## 요약 / ## 핵심 / ## 해볼 것 / ## 링크 / ## 원문`. 링크는 검색·fetch 결과에 실제로 나온 URL만.
 
 어떤 예외든 잡아서 `status: 실패`로 두고 에러 메시지를 본문에 넣는다. 조용한 실패 금지.
 

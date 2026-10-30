@@ -91,8 +91,29 @@ assert saved == ["ig1"]
 def _unreadable(payload, tags):
     raise app.Unreadable("원문을 읽지 못함")
 app.summarize = _unreadable
+app.fetch_rendered = lambda url: None  # Jina can't read it either
 r = app.process_row({"id": "np", "properties": {"url": {"url": "https://app.notion.com/p/x"}}})
 assert r == {"saved_only": True, "one_liner": "내용 미확인 · 원문을 읽지 못함"} and saved[-1] == "np", r
+
+# JS-rendered page: Claude gets an empty shell -> Jina renders it -> Claude reads the text (not saved-only)
+def _url_unreadable(payload, tags):
+    if "url" in payload:
+        raise app.Unreadable("빈 페이지")
+    seen.append(payload)
+    return {"one_liner": "r", "tags": []}
+app.summarize = _url_unreadable
+app.fetch_rendered = lambda url: "렌더된 본문"
+r = app.process_row({"id": "js", "properties": {"url": {"url": "https://app.notion.com/p/x"}}})
+assert r["one_liner"] == "r" and seen[-1]["text"].startswith("원문 URL: https://app.notion.com/p/x\n") and "렌더된 본문" in seen[-1]["text"], seen[-1]
+assert saved[-1] == "np"
+# nothing rendered -> saved only with Claude's reason; the YouTube path never asks Jina
+rendered = []
+app.fetch_rendered = lambda url: rendered.append(url) or None
+r = app.process_row({"id": "js2", "properties": {"url": {"url": "https://app.notion.com/p/x"}}})
+assert r == {"saved_only": True, "one_liner": "내용 미확인 · 빈 페이지"} and saved[-1] == "js2" and rendered == ["https://app.notion.com/p/x"], r
+app.summarize = _unreadable
+app.process_row({"id": "yt2", "properties": {"url": {"url": "https://youtu.be/v"}}})
+assert saved[-1] == "yt2" and len(rendered) == 1, rendered
 
 # notion body: fixed heading order for weekend agents
 import notion  # noqa: E402
@@ -107,18 +128,51 @@ import summarize  # noqa: E402
 seen = '[{"url": "https://github.com/a/skill", "title": "x"}]'
 got = summarize._verified([{"name": "a", "url": "https://github.com/a/skill/"}, {"name": "b", "url": "https://sume.com"}], seen)
 assert got == [{"name": "a", "url": "https://github.com/a/skill/"}], got
-# Gemini down: YouTube falls back to Claude (marked), an uploaded video fails loudly
-def _down(*a, **k):
-    raise RuntimeError("POST gemini -> 429: quota")
-summarize._post, summarize.upload_video = _down, _down
+# Jina Reader: rendered page -> its text; missing page, empty shell or error -> None
+_orig_request = summarize.request
+summarize.request = lambda m, url, headers=None, raw=False, timeout=120: ("Title: T\n\nURL Source: " + url + "\n\nMarkdown Content:\n" + "본문 " * 100).encode()
+assert summarize.fetch_rendered("https://x").startswith("본문 본문")
+summarize.request = lambda *a, **k: ("Title: Notion\n\nMarkdown Content:\nThis page couldn’t be found\n\n" + "x" * 300).encode()
+assert summarize.fetch_rendered("https://x") is None
+summarize.request = lambda *a, **k: b"Markdown Content:\nshort"
+assert summarize.fetch_rendered("https://x") is None
+summarize.request = lambda *a, **k: ("Title: T\n\nWarning: Target URL returned error 404: Not Found\n\nMarkdown Content:\n" + "custom 404 page " * 30).encode()
+assert summarize.fetch_rendered("https://x") is None
+summarize.request = lambda m, url, *a, **k: ("Markdown Content:\n" + url + "\n" + "본문 " * 100).encode()
+assert summarize.fetch_rendered("https://namu.wiki/w/파이썬?a=1&b=%20c#s").startswith("https://r.jina.ai/https://namu.wiki/w/%ED%8C%8C%EC%9D%B4%EC%8D%AC?a=1&b=%20c#s")
+def _boom(*a, **k):
+    raise RuntimeError("GET jina -> 429")
+summarize.request = _boom
+assert summarize.fetch_rendered("https://x") is None
+summarize.request = _orig_request
+# Gemini quota is per model: the first model's 429 hands over to the next one; links are not looked up for no tools
+calls = []
+def _quota_then_ok(url, headers, body):
+    calls.append(url.rsplit("/", 1)[1].split(":")[0])
+    if len(calls) == 1:
+        raise RuntimeError(f"POST {url} -> 429: quota")
+    return {"candidates": [{"content": {"parts": [{"text": '{"one_liner": "g", "tags": ["t"], "tools": []}'}]}}]}
+summarize._post = _quota_then_ok
+os.environ["GEMINI_MODEL"] = "m1, m2,m3"
+r = summarize.summarize({"youtube_url": "https://www.youtube.com/watch?v=x"})
+assert calls == ["m1", "m2"] and r["one_liner"] == "g" and r["links"] == [], (calls, r)
+# Gemini down on every model: all are tried, YouTube falls back to Claude (marked); an uploaded video is uploaded
+# once and then fails loudly with the last model's error
+tried, uploads = [], []
+def _down(url, *a, **k):
+    tried.append(url.rsplit("/", 1)[1].split(":")[0])
+    raise RuntimeError(f"POST {url} -> 429: quota")
+summarize._post = _down
+summarize.upload_video = lambda data, mime: uploads.append(mime) or {"uri": "files/x", "mimeType": mime}
 summarize._claude = lambda prompt, name, schema, tools: ({"one_liner": "o", "summary": "s", "tags": ["t"], "links": []}, prompt)
 r = summarize.summarize({"youtube_url": "https://www.youtube.com/watch?v=x"})
-assert r["one_liner"] == "[설명 기반] o" and r["summary"].startswith(summarize.FALLBACK_NOTE), r
+assert tried == ["m1", "m2", "m3"] and r["one_liner"] == "[설명 기반] o" and r["summary"].startswith(summarize.FALLBACK_NOTE), (tried, r)
+tried.clear()
 try:
     summarize.summarize({"video_bytes": b"v", "mime": "video/mp4"})
     raise AssertionError("video upload should fail when Gemini is down")
 except RuntimeError as e:
-    assert "다시 보내줘" in str(e)
+    assert "다시 보내줘" in str(e) and "m3:generateContent -> 429" in str(e) and uploads == ["video/mp4"] and tried == ["m1", "m2", "m3"], (e, uploads, tried)
 js = summarize._json_schema(summarize.CLAUDE_SCHEMA)
 assert js["type"] == "object" and js["additionalProperties"] is False and js["properties"]["links"]["items"]["additionalProperties"] is False
 assert js["properties"]["category"]["enum"] == summarize.CATEGORIES

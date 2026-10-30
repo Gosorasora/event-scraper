@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import urllib.request
+from urllib.parse import quote
 
 from common import CATEGORIES, TYPES, get, request
 
@@ -55,7 +56,11 @@ LINK_PROMPT = """다음은 영상이 소개한 스킬·도구 이름이다: {nam
 
 
 API = "https://generativelanguage.googleapis.com"
+# Free-tier daily quota is per model, so a list: when one model is used up the next one still has its own.
+GEMINI_MODELS = "gemini-3.8-flash,gemini-2.5-flash,gemini-3.5-flash-lite"
 CLAUDE_API = "https://api.anthropic.com/v1/messages"
+READER = "https://r.jina.ai/"  # renders JS pages (Notion, SPAs) in a headless browser; keyless, 20 req/min
+NOT_FOUND = ("couldn’t be found", "couldn't be found")
 WEB_SEARCH = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
 WEB_FETCH = {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 2}
 FALLBACK_NOTE = "(Gemini 사용 불가로 영상을 보지 못함. 페이지 제목·설명·검색 기반 요약)"
@@ -85,6 +90,22 @@ def upload_video(data, mime):
         time.sleep(2)
         f = request("GET", f"{API}/v1beta/{f['name']}", key)
     raise TimeoutError("Gemini 영상 처리 대기 시간 초과")
+
+
+def fetch_rendered(url):
+    """Second try for a page Claude couldn't read: Jina Reader returns the rendered page as text.
+    None when that isn't useful either (missing page, empty shell, error), so the caller keeps the save-only path."""
+    try:
+        # quote: urllib rejects non-ASCII paths (e.g. namu.wiki/w/파이썬); '%' stays so existing escapes survive
+        page = request("GET", READER + quote(url, safe=":/?&=%#+@,;~"), {"Accept": "text/plain"}, raw=True, timeout=90).decode(errors="replace")
+    except Exception as e:
+        log.warning("fetch_rendered failed: %s", e)
+        return None
+    head, _, text = page.partition("Markdown Content:")  # head carries "Warning: Target URL returned error 404" etc.
+    text = text.strip()
+    if "Target URL returned error" in head or len(text) < 200 or any(m in text[:300] for m in NOT_FOUND):
+        return None
+    return text
 
 
 class Unreadable(Exception):
@@ -165,10 +186,17 @@ def _gemini_video(payload, head):
         parts.append({"file_data": {"file_uri": f["uri"], "mime_type": f["mimeType"]}})
         if payload.get("context"):
             parts.append({"text": payload["context"]})
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    res = _post(f"{API}/v1beta/models/{model}:generateContent", {"x-goog-api-key": get("gemini-api-key")}, {
-        "contents": [{"parts": parts}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": GEMINI_SCHEMA}})
+    body = {"contents": [{"parts": parts}],
+            "generationConfig": {"responseMimeType": "application/json", "responseSchema": GEMINI_SCHEMA}}
+    models = [m.strip() for m in os.environ.get("GEMINI_MODEL", GEMINI_MODELS).split(",") if m.strip()]
+    for model in models[:-1]:  # any error (429 daily quota, 404 retired model) -> next model; the last one's error propagates
+        try:
+            res = _post(f"{API}/v1beta/models/{model}:generateContent", {"x-goog-api-key": get("gemini-api-key")}, body)
+            break
+        except Exception as e:
+            log.warning("Gemini %s failed, trying the next model: %s", model, e)
+    else:
+        res = _post(f"{API}/v1beta/models/{models[-1]}:generateContent", {"x-goog-api-key": get("gemini-api-key")}, body)
     result = json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
     result["links"] = find_links(result.pop("tools"), result["one_liner"])
     return result

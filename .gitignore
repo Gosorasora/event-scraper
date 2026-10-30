@@ -3,3 +3,4 @@ __pycache__/
 .env
 .omc/
 samconfig.local.toml
+.claude/settings.local.json

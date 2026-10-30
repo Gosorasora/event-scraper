@@ -4,7 +4,7 @@ import logging
 
 import notion
 import telegram
-from summarize import Unreadable, summarize
+from summarize import Unreadable, fetch_rendered, summarize
 
 CAPTION_MIN = 30
 INSTAGRAM_NOTE = "인스타 릴스 · 내용 미확인"
@@ -81,6 +81,18 @@ def _batch():
 
 # --- Worker -----------------------------------------------------------------
 
+def _read(payload, url, tags):
+    """Claude reads the input. A URL it can't read (JS-rendered page = empty shell) is rendered by Jina Reader
+    and Claude reads that text. Raises Unreadable when neither worked."""
+    try:
+        return summarize(payload, tags)
+    except Unreadable:
+        text = "url" in payload and fetch_rendered(url)  # only the URL path: video, clipper body and captions have nothing to render
+        if not text:
+            raise
+        return summarize({"text": f"원문 URL: {url}\n---\n{text}"}, tags)
+
+
 def process_row(page, video=None):
     """Fill one row. On any error: status=실패 + error in body, then re-raise. No silent failures.
     video: {"video_bytes", "mime"} when the user sent the file itself (e.g. a downloaded reel)."""
@@ -110,7 +122,7 @@ def process_row(page, video=None):
         else:
             raise ValueError("입력 없음 (url 또는 본문 필요)")
         try:
-            result = summarize(payload, notion.tag_options())
+            result = _read(payload, url, notion.tag_options())
         except Unreadable as e:  # same rule as Instagram: can't read it -> keep the link, don't guess
             note = f"내용 미확인 · {str(e)[:150]}"
             notion.mark_saved_only(pid, note)

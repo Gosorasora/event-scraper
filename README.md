@@ -6,7 +6,7 @@
 
 ![Architecture](docs/event-scraper-aws.png)
 
-- **Videos and YouTube** go to Gemini 2.5 Flash, which watches the video itself.
+- **Videos and YouTube** go to Gemini Flash, which watches the video itself. Models are tried in order (`gemini-3.8-flash`, then `2.5-flash`, then `3.5-flash-lite`): the free daily quota is per model, so when one runs out the next one takes over.
 - **Articles and text** go to Claude Haiku 5.5, which reads the page with `web_fetch` and finds official links with `web_search`. A link is kept only if it actually appeared in the fetched or searched content.
 - **If Gemini is down or out of quota**, Claude summarizes YouTube videos from their title and description, and the summary is marked as such.
 - **Rows added by the Notion Web Clipper** (empty `one_liner`) are filled by a daily batch run.
@@ -67,6 +67,7 @@ No `sam build` is needed. The function has no third-party dependencies, so `sam 
 |---|---|
 | YouTube / Shorts link | Gemini watches it, and Claude finds official links |
 | Article link | Claude reads it and finds official links |
+| Link to a JavaScript-rendered page (someone's public Notion page, a SPA) | Claude only gets an empty shell, so the page is rendered through [Jina Reader](https://jina.ai/reader/) and Claude reads that text |
 | Link + text on the next lines | The text is saved as `memo` |
 | Video file up to 20 MB (for example, a downloaded reel) | Gemini watches the file |
 | Instagram link only | Saved without a summary (Instagram can't be read from a link). Send the video file, or paste the caption as memo |
@@ -83,13 +84,13 @@ The bot replies with the one-liner and the Notion page link. If a page can't be 
 
 - **Categories and content types:** `CATEGORIES` and `TYPES` in `src/common.py`
 - **Summary language and prompt:** `PROMPT` in `src/summarize.py`. Summaries are written in Korean by default.
-- **Models:** the `GeminiModel` and `ClaudeModel` parameters in `template.yaml`
+- **Models:** the `GeminiModel` (comma-separated, tried in order) and `ClaudeModel` parameters in `template.yaml`
 
 ## Security
 
 - **The Function URL is public.** Every call must carry the Telegram webhook secret header and come from your chat id. All other calls are ignored.
 - **Keys live in SSM Parameter Store** as SecureString, not in code or Lambda environment variables. The function's IAM role can read only `/event-scraper/*`, and loads the keys once per cold start.
-- **Third parties see your content.** What you send goes to Telegram, Google (Gemini), Anthropic (Claude) and Notion.
+- **Third parties see your content.** What you send goes to Telegram, Google (Gemini), Anthropic (Claude) and Notion. A page Claude can't read is also sent to Jina Reader to be rendered.
 
 ## Uninstall
 
