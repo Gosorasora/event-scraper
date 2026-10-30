@@ -21,6 +21,13 @@ notion._call = lambda m, path, body=None: {"results": [
     {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "❌ RuntimeError: x"}]}},
     {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "본문"}]}}], "has_more": False}
 assert notion.fetch_page_body("p") == "본문"
+# reprocessing a filled row: our own result section (appended last, starts with "## 요약") is not content either
+_h2 = lambda s: {"type": "heading_2", "heading_2": {"rich_text": [{"plain_text": s}]}}  # noqa: E731
+_p = lambda s: {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": s}]}}  # noqa: E731
+notion._call = lambda m, path, body=None: {"results": [_p("클리퍼 본문"), _h2("요약"), _p("우리가 쓴 요약"), _h2("핵심"), _p("k")], "has_more": False}
+assert notion.fetch_page_body("p") == "클리퍼 본문"
+notion._call = lambda m, path, body=None: {"results": [_h2("요약"), _p("우리가 쓴 요약")], "has_more": False}
+assert notion.fetch_page_body("p") == ""
 notion._call = _orig_call
 
 # parse_message

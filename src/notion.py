@@ -7,6 +7,7 @@ API = "https://api.notion.com/v1"
 VERSION = "2025-09-03"
 
 FAIL_MARK = "❌ "  # prefix of the error note mark_failed appends; skipped when a row is reprocessed
+RESULT_HEAD = "요약"  # first heading of our result section; everything from it on is ours, not content to summarize
 _ds = {}  # data_source_id + known tag options, filled on cold start
 
 
@@ -76,6 +77,8 @@ def fetch_page_body(page_id):
         for b in res["results"]:
             rich = b.get(b["type"], {}).get("rich_text", [])
             t = "".join(r.get("plain_text", "") for r in rich)
+            if b["type"] == "heading_2" and t == RESULT_HEAD:  # reprocessing a filled row: stop at our own result section
+                return "\n".join(texts)
             if t and not t.startswith(FAIL_MARK):  # our own error note is not content to summarize
                 texts.append(t)
         if not res.get("has_more"):
@@ -121,7 +124,7 @@ def result_blocks(r, url):
     """Fixed heading order so a weekend agent can parse every row the same way."""
     links = r.get("links", [])  # None = link search failed
     return (
-        [_h2("요약"), _para(r["summary"])]
+        [_h2(RESULT_HEAD), _para(r["summary"])]
         + [_h2("핵심")] + _bullets(r.get("key_points", []))
         + [_h2("해볼 것")] + (_bullets(r["try_this"]) if r.get("try_this") else [_para("없음")])
         + [_h2("링크")] + (_links(links) if links else [_para("검색 실패" if links is None else "없음")])
