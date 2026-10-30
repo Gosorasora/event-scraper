@@ -189,14 +189,15 @@ def _gemini_video(payload, head):
     body = {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "responseSchema": GEMINI_SCHEMA}}
     models = [m.strip() for m in os.environ.get("GEMINI_MODEL", GEMINI_MODELS).split(",") if m.strip()]
-    for model in models[:-1]:  # any error (429 daily quota, 404 retired model) -> next model; the last one's error propagates
+    for i, model in enumerate(models):  # any error (429 daily quota, 404 retired model) -> next model; the last one's error propagates
         try:
             res = _post(f"{API}/v1beta/models/{model}:generateContent", {"x-goog-api-key": get("gemini-api-key")}, body)
             break
         except Exception as e:
+            if i == len(models) - 1:
+                raise
             log.warning("Gemini %s failed, trying the next model: %s", model, e)
-    else:
-        res = _post(f"{API}/v1beta/models/{models[-1]}:generateContent", {"x-goog-api-key": get("gemini-api-key")}, body)
+    log.info("Gemini %s answered", model)
     result = json.loads(res["candidates"][0]["content"]["parts"][0]["text"])
     result["links"] = find_links(result.pop("tools"), result["one_liner"])
     return result

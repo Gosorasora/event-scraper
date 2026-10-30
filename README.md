@@ -84,7 +84,7 @@ The bot replies with the one-liner and the Notion page link. If a page can't be 
 
 - **Categories and content types:** `CATEGORIES` and `TYPES` in `src/common.py`
 - **Summary language and prompt:** `PROMPT` in `src/summarize.py`. Summaries are written in Korean by default.
-- **Models:** the `GeminiModel` (comma-separated, tried in order) and `ClaudeModel` parameters in `template.yaml`
+- **Models:** the `GeminiModel` (comma-separated, tried in order) and `ClaudeModel` parameters in `template.yaml`. An existing stack keeps its old parameter values, so pass new ones explicitly: `sam deploy --parameter-overrides 'GeminiModel="gemini-3.8-flash,gemini-2.5-flash"'`
 
 ## Security
 

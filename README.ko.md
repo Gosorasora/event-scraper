@@ -84,7 +84,7 @@ AWS_PROFILE=<내 프로필> AWS_REGION=ap-northeast-2 ./scripts/setup.sh
 
 - **분류와 콘텐츠 유형:** `src/common.py`의 `CATEGORIES`, `TYPES`
 - **요약 언어와 프롬프트:** `src/summarize.py`의 `PROMPT`. 기본값은 한국어 요약입니다.
-- **모델:** `template.yaml`의 `GeminiModel`(쉼표로 구분, 순서대로 시도), `ClaudeModel` 파라미터
+- **모델:** `template.yaml`의 `GeminiModel`(쉼표로 구분, 순서대로 시도), `ClaudeModel` 파라미터. 이미 배포된 스택은 이전 파라미터 값을 유지하므로 바꿀 때는 명시적으로 넘깁니다: `sam deploy --parameter-overrides 'GeminiModel="gemini-3.8-flash,gemini-2.5-flash"'`
 
 ## 보안
 
