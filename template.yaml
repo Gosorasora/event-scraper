@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Content summary bot - Telegram/Notion clipper -> Gemini -> Notion
+
+Parameters:
+  GeminiModel:
+    Type: String
+    Default: gemini-2.5-flash
+  ClaudeModel:
+    Type: String
+    Default: claude-haiku-5-5
+
+Resources:
+  Bot:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: event-scraper
+      CodeUri: src/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 300
+      MemorySize: 256
+      Environment:
+        Variables:
+          GEMINI_MODEL: !Ref GeminiModel
+          CLAUDE_MODEL: !Ref ClaudeModel
+          SSM_PREFIX: /event-scraper
+      FunctionUrlConfig:
+        AuthType: NONE
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParametersByPath
+              Resource:
+                - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/event-scraper
+                - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/event-scraper/*
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:event-scraper
+
+Outputs:
+  FunctionUrl:
+    Value: !GetAtt BotUrl.FunctionUrl
