@@ -47,7 +47,7 @@ The script does the following:
 
 When it finishes, send your bot a link.
 
-The script is safe to re-run. At a key prompt, press Enter to keep the stored value. To replace a key, for example after rotating it, run the script again and paste the new one.
+The script is safe to re-run. At a key prompt, press Enter to keep the stored value. To replace a key, for example after rotating it, run the script again and paste the new one. Deploying a second copy (another region, a test) while the real bot keeps its webhook: `SKIP_WEBHOOK=1 ./scripts/setup.sh`, then call the Function URL yourself with the webhook secret header.
 
 <details>
 <summary>Installing from your own machine instead</summary>

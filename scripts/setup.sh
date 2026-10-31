@@ -53,5 +53,7 @@ scripts/put-params.sh
 # No `sam build`: the function has no dependencies, so deploy packages src/ as is
 # (and CloudShell's python3 doesn't have to match the python3.12 runtime).
 sam deploy --region "$R" --no-fail-on-empty-changeset
-scripts/set-webhook.sh
+# A bot token holds one webhook. SKIP_WEBHOOK=1 when this is a second copy (another region, a test) and the
+# real bot must keep pointing at the first one; drive this copy by calling the Function URL yourself.
+[ -n "${SKIP_WEBHOOK:-}" ] && echo "SKIP_WEBHOOK set: webhook left as is" || scripts/set-webhook.sh
 echo "Done. Send a YouTube or article link to your bot."
